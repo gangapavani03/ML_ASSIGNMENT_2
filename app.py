@@ -8,8 +8,12 @@ import matplotlib.pyplot as plt
 st.set_page_config(page_title="Heart Disease Prediction", layout="wide")
 
 st.title("❤️ Heart Disease Prediction App")
-
+st.caption("ML-based clinical decision support demo")
 st.write("Select a model and upload a CSV file to evaluate predictions.")
+st.markdown(
+    "<style> .stApp { background-color: #0f172a; color: #e5e7eb; } </style>",
+    unsafe_allow_html=True
+)
 
 # Load models
 models = {
