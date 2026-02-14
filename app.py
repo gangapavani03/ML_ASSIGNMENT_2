@@ -1,106 +1,109 @@
 import streamlit as st
 import pandas as pd
 import joblib
-from sklearn.metrics import accuracy_score, roc_auc_score, precision_score, recall_score, f1_score, matthews_corrcoef, confusion_matrix
-import seaborn as sns
 import matplotlib.pyplot as plt
-
-st.set_page_config(page_title="Heart Disease Prediction", layout="wide")
-
-st.title("❤️ Heart Disease Prediction App")
-st.caption("ML-based clinical decision support demo")
-st.write("Select a model and upload a CSV file to evaluate predictions.")
-st.markdown(
-    "<style> .stApp { background-color: #0f172a; color: #e5e7eb; } </style>",
-    unsafe_allow_html=True
+import seaborn as sns
+from sklearn.metrics import (
+    accuracy_score, roc_auc_score, precision_score, 
+    recall_score, f1_score, matthews_corrcoef, confusion_matrix
 )
 
-# Load models
-models = {
-    "Logistic Regression": joblib.load("model/Logistic_Regression.pkl"),
-    "Decision Tree": joblib.load("model/Decision_Tree.pkl"),
-    "KNN": joblib.load("model/KNN.pkl"),
-    "Naive Bayes": joblib.load("model/Naive_Bayes.pkl"),
-    "Random Forest": joblib.load("model/Random_Forest.pkl"),
-    "XGBoost": joblib.load("model/XGBoost.pkl")
-}
+# Page Config
+st.set_page_config(page_title="Heart Disease Analysis", layout="wide")
 
-model_name = st.selectbox("Choose a model", list(models.keys()))
-model = models[model_name]
-
+# Colorful UI Styling
 st.markdown("""
-<style>
-[data-testid="stFileUploader"] {
-    background: linear-gradient(135deg, #1e3a8a, #9333ea);
-    border: 2px dashed #facc15;
-    padding: 20px;
-    border-radius: 15px;
-    color: white;
-}
+    <style>
+    .metric-card {
+        background-color: #1E1E1E;
+        padding: 15px;
+        border-radius: 10px;
+        border-left: 5px solid #FF4B4B;
+        margin-bottom: 10px;
+    }
+    .metric-value { font-size: 24px; font-weight: bold; color: #00FFCC; }
+    .metric-label { font-size: 14px; color: #BBBBBB; }
+    </style>
+    """, unsafe_allow_html=True)
 
-[data-testid="stFileUploader"] label {
-    color: #fde68a;
-    font-size: 16px;
-    font-weight: bold;
-}
+st.title("❤️ Heart Disease Prediction App")
 
-[data-testid="stFileUploader"] section {
-    background: rgba(0,0,0,0.15);
-    border-radius: 10px;
-    padding: 10px;
-}
+# 1. Download Option
+with open("test_sample.csv", "rb") as f:
+    st.download_button("⬇️ Step 1: Download Template CSV", f, "test_sample.csv", "text/csv")
 
-[data-testid="stFileUploader"] button {
-    background: #22c55e !important;
-    color: black !important;
-    font-weight: bold;
-    border-radius: 10px;
-    border: none;
-}
+# 2. Model Selection (After Download)
+try:
+    scaler = joblib.load("model/scaler.pkl")
+    features = joblib.load("model/features.pkl")
+    model_names = ["Logistic Regression", "Decision Tree", "KNN", "Naive Bayes", "Random Forest", "XGBoost"]
+    
+    st.subheader("🌈 Step 2: Choose your Machine Learning Model")
+    selected_name = st.selectbox("", model_names)
+    model = joblib.load(f"model/{selected_name.replace(' ', '_')}.pkl")
+except:
+    st.error("Error: Model files not found. Run 'python train_models.py' first.")
+    st.stop()
 
-[data-testid="stFileUploader"] button:hover {
-    background: #16a34a !important;
-    color: white !important;
-}
-</style>
-""", unsafe_allow_html=True)
+# 3. File Upload
+uploaded_file = st.file_uploader("📤 Step 3: Upload Test CSV", type="csv")
 
-uploaded_file = st.file_uploader("Upload test CSV", type="csv")
-
-if uploaded_file is not None:
-    data = pd.read_csv(uploaded_file)
-
-    if "HeartDisease" not in data.columns:
-        st.error("CSV must contain HeartDisease column.")
+if uploaded_file:
+    df = pd.read_csv(uploaded_file)
+    
+    # Original columns check
+    required = ["Age","Sex","ChestPainType","RestingBP","Cholesterol","FastingBS",
+                "RestingECG","MaxHR","ExerciseAngina","Oldpeak","ST_Slope","HeartDisease"]
+    
+    if not all(c in df.columns for c in required):
+        st.error(f"Error: Uploaded CSV must contain original columns: {required}")
     else:
-        X = data.drop("HeartDisease", axis=1)
-        y = data["HeartDisease"]
+        # --- PREPROCESSING ---
+        X = df.drop("HeartDisease", axis=1)
+        y = df["HeartDisease"]
+        X_enc = pd.get_dummies(X, drop_first=True)
+        # Force columns to match training exactly
+        X_final = X_enc.reindex(columns=features, fill_value=0)
+        X_scaled = scaler.transform(X_final)
 
-        X = pd.get_dummies(X, drop_first=True)
+        # --- PREDICTION ---
+        y_pred = model.predict(X_scaled)
+        y_prob = model.predict_proba(X_scaled)[:, 1] if hasattr(model, "predict_proba") else y_pred
 
-        y_pred = model.predict(X)
-        y_prob = model.predict_proba(X)[:, 1] if hasattr(model, "predict_proba") else y_pred
+        # --- METRICS ---
+        metrics = {
+            "Accuracy": accuracy_score(y, y_pred),
+            "AUC Score": roc_auc_score(y, y_prob),
+            "Precision": precision_score(y, y_pred),
+            "Recall": recall_score(y, y_pred),
+            "F1 Score": f1_score(y, y_pred),
+            "MCC Score": matthews_corrcoef(y, y_pred)
+        }
 
-        acc = accuracy_score(y, y_pred)
-        auc = roc_auc_score(y, y_prob)
-        prec = precision_score(y, y_pred)
-        rec = recall_score(y, y_pred)
-        f1 = f1_score(y, y_pred)
-        mcc = matthews_corrcoef(y, y_pred)
+        # --- DISPLAY RESULTS ---
+        st.divider()
+        st.header(f"📊 Results for {selected_name}")
+        
+        # 6 Metrics in 3 Columns
+        cols = st.columns(3)
+        m_list = list(metrics.items())
+        for i in range(6):
+            with cols[i % 3]:
+                st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">{m_list[i][0]}</div>
+                        <div class="metric-value">{m_list[i][1]:.3f}</div>
+                    </div>
+                """, unsafe_allow_html=True)
 
-        st.subheader("📊 Performance Metrics")
-        st.write(f"Accuracy: {acc:.3f}")
-        st.write(f"AUC: {auc:.3f}")
-        st.write(f"Precision: {prec:.3f}")
-        st.write(f"Recall: {rec:.3f}")
-        st.write(f"F1: {f1:.3f}")
-        st.write(f"MCC: {mcc:.3f}")
-
-        cm = confusion_matrix(y, y_pred)
-        st.subheader("Confusion Matrix")
-
-        fig, ax = plt.subplots()
-        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax)
-        ax.set_xlabel("Predicted")
-        ax.set_ylabel("Actual")
-        st.pyplot(fig)
+        # Visualizations
+        c1, c2 = st.columns(2)
+        with c1:
+            st.write("### Confusion Matrix")
+            fig, ax = plt.subplots()
+            sns.heatmap(confusion_matrix(y, y_pred), annot=True, fmt='d', cmap='Reds', ax=ax)
+            st.pyplot(fig)
+        with c2:
+            st.write("### Prediction vs Actual")
+            res_df = pd.DataFrame({'Actual': y, 'Predicted': y_pred})
+            st.bar_chart(res_df.apply(pd.Series.value_counts))
